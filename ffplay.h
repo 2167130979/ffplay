@@ -135,7 +135,7 @@ AVDictionary **setup_find_stream_info_opts(AVFormatContext *s,
 
 #define MAX_QUEUE_SIZE (15 * 1024 * 1024)
 #define MIN_FRAMES 5
-
+int src_width, src_height;
 /* Minimum SDL audio buffer size, in samples. */
 #define SDL_AUDIO_MIN_BUFFER_SIZE 512
 /* Calculate actual buffer size keeping in mind not cause too frequent audio callbacks */
@@ -2777,8 +2777,10 @@ static int read_thread(void *arg)
 
 	is->show_mode = show_mode;
 	if (st_index[AVMEDIA_TYPE_VIDEO] >= 0) {
-		AVStream *st = ic->streams[st_index[AVMEDIA_TYPE_VIDEO]];
+		AVStream *st = ic->streams[st_index[AVMEDIA_TYPE_VIDEO]];		
 		AVCodecContext *avctx = st->codec;
+		src_width = avctx->width;
+		src_height = avctx->height;
 		AVRational sar = av_guess_sample_aspect_ratio(ic, st, NULL);
 		if (avctx->width)
 			set_default_window_size(avctx->width, avctx->height, sar);

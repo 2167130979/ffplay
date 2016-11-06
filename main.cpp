@@ -74,6 +74,8 @@ int WINAPI WinMain(HINSTANCE hThisInstance,
 LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	RECT rect;
+	double srcRatio,screenRatio;
+	double width, height;
 	switch (message)                  /* handle the messages */
 	{
 	case WM_LBUTTONUP:		
@@ -82,7 +84,21 @@ LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
 			play("d:/1.rmvb");
 		}			
 		break;
-	case WM_SIZING:
+	case WM_SIZE:
+		if (wParam != SIZE_MINIMIZED){
+			GetClientRect(hwnd, &rect);
+			srcRatio = (double)src_width / (double)src_height;
+			screenRatio = (double)(rect.right - rect.left) / (double)(rect.bottom - rect.top);
+			if (screenRatio > srcRatio){
+				height = rect.bottom - rect.top;
+				width = (rect.bottom - rect.top)*srcRatio;
+			}
+			else{
+				width = (rect.right - rect.left);
+				height = width / srcRatio;				
+			}
+			glViewport(((rect.right - rect.left) - width) / 2, ((rect.bottom - rect.top) - height) / 2, width, height);
+		}		
 		break;
 	case WM_DESTROY:
 		PostQuitMessage(0);       /* send a WM_QUIT to the message queue */
