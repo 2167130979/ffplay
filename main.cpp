@@ -77,12 +77,16 @@ LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
 	double srcRatio,screenRatio;
 	double width, height;
 	double pos,incr;
+	char title[64];
+	LONGLONG time;
 	switch (message)                  /* handle the messages */
 	{
-	case WM_LBUTTONUP:		
+	case WM_LBUTTONUP:	
+		SetTimer(hwnd, 1, 1000, NULL);
 		if (!is){
 			Init(hwnd);
 			play("d:/1.rmvb");
+			
 		}			
 		break;
 	case WM_SIZE:
@@ -124,8 +128,14 @@ LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
 		}
 	
 		break;
+	case WM_TIMER:
+		memset(title,0 , 64);
+		time = get_master_clock(is);
+		sprintf(title, "%02lld:%02lld:%02lld/%02lld:%02lld:%02lld", time / 3600, time / 60 % 60, time % 60, totaltime / 3600, totaltime / 60 % 60, totaltime % 60);
+		SetWindowText(hwnd, title);
+		break;
 	case WM_DESTROY:
-		PostQuitMessage(0);       /* send a WM_QUIT to the message queue */
+		exit(0);       /* send a WM_QUIT to the message queue */
 		break;
 	default:                      /* for messages that we don't deal with */
 		return DefWindowProc(hwnd, message, wParam, lParam);
