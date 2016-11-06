@@ -40,12 +40,12 @@ int WINAPI WinMain(HINSTANCE hThisInstance,
 	hwnd = CreateWindowEx(
 		0,                   /* Extended possibilites for variation */
 		szClassName,         /* Classname */
-		"Code::Blocks Template Windows App",       /* Title Text */
+		"ffplay",       /* Title Text */
 		WS_OVERLAPPEDWINDOW, /* default window */
 		CW_USEDEFAULT,       /* Windows decides the position */
 		CW_USEDEFAULT,       /* where the window ends up on the screen */
-		544,                 /* The programs width */
-		375,                 /* and height in pixels */
+		600,                 /* The programs width */
+		400,                 /* and height in pixels */
 		HWND_DESKTOP,        /* The window is a child-window to desktop */
 		NULL,                /* No menu */
 		hThisInstance,       /* Program Instance handler */
@@ -76,6 +76,7 @@ LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
 	RECT rect;
 	double srcRatio,screenRatio;
 	double width, height;
+	double pos,incr;
 	switch (message)                  /* handle the messages */
 	{
 	case WM_LBUTTONUP:		
@@ -99,6 +100,29 @@ LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
 			}
 			glViewport(((rect.right - rect.left) - width) / 2, ((rect.bottom - rect.top) - height) / 2, width, height);
 		}		
+		break;
+	case WM_KEYUP:
+		if (!is)
+			break;
+		switch (wParam){
+		case VK_RIGHT:
+			incr = 60.0;
+			goto do_seek;
+			break;
+		case VK_LEFT:
+			incr = -60.0;
+			goto do_seek;
+			break;
+		do_seek:
+			pos = get_master_clock(is);
+			if (isnan(pos))
+				pos = (double)is->seek_pos / AV_TIME_BASE;
+			pos += incr;
+			if (is->ic->start_time != AV_NOPTS_VALUE && pos < is->ic->start_time / (double)AV_TIME_BASE)
+				pos = is->ic->start_time / (double)AV_TIME_BASE;
+			stream_seek(is, (int64_t)(pos * AV_TIME_BASE), (int64_t)(incr * AV_TIME_BASE), 0);
+		}
+	
 		break;
 	case WM_DESTROY:
 		PostQuitMessage(0);       /* send a WM_QUIT to the message queue */
