@@ -1,12 +1,11 @@
 #include <windows.h>
 #include "ffplay.h"
-/*  Declare Windows procedure  */
-LRESULT CALLBACK WindowProcedure(HWND, UINT, WPARAM, LPARAM);
 
-/*  Make the class name into a global variable  */
+LRESULT CALLBACK WindowProcedure(HWND, UINT, WPARAM, LPARAM);
+BOOL  OpenFileDialog(HWND hWnd);
 char szClassName[] = "CodeBlocksWindowsApp";
 char szFile[2048];
-BOOL  OpenFileDialog(HWND hWnd);
+
 ;
 int WINAPI WinMain(HINSTANCE hThisInstance,
 	HINSTANCE hPrevInstance,
@@ -17,21 +16,17 @@ int WINAPI WinMain(HINSTANCE hThisInstance,
 	MSG messages;            /* Here messages to the application are saved */
 	WNDCLASSEX wincl;        /* Data structure for the windowclass */
 
-	/* The Window structure */
 	wincl.hInstance = hThisInstance;
 	wincl.lpszClassName = szClassName;
-	wincl.lpfnWndProc = WindowProcedure;      /* This function is called by windows */
-	wincl.style = CS_DBLCLKS;                 /* Catch double-clicks */
+	wincl.lpfnWndProc = WindowProcedure;
+	wincl.style = CS_DBLCLKS;
 	wincl.cbSize = sizeof (WNDCLASSEX);
-
-	/* Use default icon and mouse-pointer */
 	wincl.hIcon = LoadIcon(NULL, IDI_APPLICATION);
 	wincl.hIconSm = LoadIcon(NULL, IDI_APPLICATION);
 	wincl.hCursor = LoadCursor(NULL, IDC_ARROW);
-	wincl.lpszMenuName = NULL;                 /* No menu */
-	wincl.cbClsExtra = 0;                      /* No extra bytes after the window class */
-	wincl.cbWndExtra = 0;                      /* structure or the window instance */
-	/* Use Windows's default colour as the background of the window */
+	wincl.lpszMenuName = NULL;
+	wincl.cbClsExtra = 0; 
+	wincl.cbWndExtra = 0; 
 	wincl.hbrBackground = (HBRUSH)COLOR_BACKGROUND;
 
 	/* Register the window class, and if it fails quit the program */
@@ -166,11 +161,8 @@ BOOL  OpenFileDialog(HWND hWnd)
 	OPENFILENAME ofn;
 	ZeroMemory(&ofn, sizeof(ofn));
 	ofn.lStructSize = sizeof(ofn);
-	// must !
 	ofn.lpstrFile = szFile;
 	ofn.nMaxFile = sizeof(szFile);
-	//
 	ofn.lpstrFile[0] = '\0';
-	//no extention file!	ofn.lpstrFilter="Any file(*.*)\0*.*\0ddfs\0ddfs*\0";
 	return(GetOpenFileName((LPOPENFILENAME)&ofn));
 }

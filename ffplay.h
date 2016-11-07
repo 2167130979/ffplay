@@ -221,7 +221,7 @@ typedef struct Frame {
 	double pts;           /* presentation timestamp for the frame */
 	double duration;      /* estimated duration of the frame */
 	int64_t pos;          /* byte position of the frame in the input file */
-	SDL_Overlay *bmp;
+	int bmp;
 	int allocated;
 	int reallocate;
 	int width;
@@ -371,12 +371,6 @@ typedef struct VideoState {
 static AVInputFormat *file_iformat;
 static char input_filename[1024];
 static const char *window_title;
-static int fs_screen_width;
-static int fs_screen_height;
-static int default_width = 640;
-static int default_height = 480;
-static int screen_width = 0;
-static int screen_height = 0;
 static int audio_disable;
 static int video_disable;
 static int subtitle_disable;
@@ -922,8 +916,7 @@ static void blend_subrect(AVPicture *dst, const AVSubtitleRect *rect, int imgw, 
 static void free_picture(Frame *vp)
 {
 	if (vp->bmp) {
-		SDL_FreeYUVOverlay(vp->bmp);
-		vp->bmp = NULL;
+		vp->bmp = 0;
 	}
 }
 
@@ -1139,15 +1132,15 @@ static void set_default_window_size(int width, int height, AVRational sar)
 
 static int video_open(VideoState *is, int force_set_video_mode, Frame *vp)
 {
-	screen = SDL_SetVideoMode(100, 50, 0, SDL_HWSURFACE | SDL_ASYNCBLIT | SDL_HWACCEL);
+	//screen = SDL_SetVideoMode(100, 50, 0, SDL_HWSURFACE | SDL_ASYNCBLIT | SDL_HWACCEL);
 	return 0;
 }
 
 /* display the current picture, if any */
 static void video_display(VideoState *is)
 {
-	if (!screen)
-		video_open(is, 0, NULL);
+	//if (!screen)
+	//	video_open(is, 0, NULL);
 	if (is->audio_st && is->show_mode != SHOW_MODE_VIDEO)
 		video_audio_display(is);
 	else if (is->video_st)
@@ -1516,19 +1509,7 @@ static void alloc_picture(VideoState *is)
 
 	video_open(is, 0, vp);
 
-	vp->bmp = SDL_CreateYUVOverlay(vp->width, vp->height,
-		SDL_YV12_OVERLAY,
-		screen);
-	bufferdiff = vp->bmp ? FFMAX(vp->bmp->pixels[0], vp->bmp->pixels[1]) - FFMIN(vp->bmp->pixels[0], vp->bmp->pixels[1]) : 0;
-	if (!vp->bmp || vp->bmp->pitches[0] < vp->width || bufferdiff < (int64_t)vp->height * vp->bmp->pitches[0]) {
-		/* SDL allocates a buffer smaller than requested if the video
-		* overlay hardware is unable to support the requested size. */
-		av_log(NULL, AV_LOG_FATAL,
-			"Error: the video system does not support an image\n"
-			"size of %dx%d pixels. Try using -lowres or -vf \"scale=w:h\"\n"
-			"to reduce the image size.\n", vp->width, vp->height);
-		do_exit(is);
-	}
+	vp->bmp = 1;
 
 	SDL_LockMutex(is->pictq.mutex);
 	vp->allocated = 1;
@@ -2807,19 +2788,6 @@ the_end:
 
 	stream_component_close(is, old_index);
 	stream_component_open(is, stream_index);
-}
-
-
-static void toggle_full_screen(VideoState *is)
-{
-#if defined(__APPLE__) && SDL_VERSION_ATLEAST(1, 2, 14)
-	/* OS X needs to reallocate the SDL overlays */
-	int i;
-	for (i = 0; i < VIDEO_PICTURE_QUEUE_SIZE; i++)
-		is->pictq.queue[i].reallocate = 1;
-#endif
-	is_full_screen = !is_full_screen;
-	video_open(is, 1, NULL);
 }
 
 static void toggle_audio_display(VideoState *is)
