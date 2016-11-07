@@ -369,7 +369,7 @@ typedef struct VideoState {
 
 /* options specified by the user */
 static AVInputFormat *file_iformat;
-static const char *input_filename;
+static char input_filename[1024];
 static const char *window_title;
 static int fs_screen_width;
 static int fs_screen_height;
@@ -1139,40 +1139,7 @@ static void set_default_window_size(int width, int height, AVRational sar)
 
 static int video_open(VideoState *is, int force_set_video_mode, Frame *vp)
 {
-	int flags = SDL_HWSURFACE | SDL_ASYNCBLIT | SDL_HWACCEL;
-	int w, h;
-
-	if (is_full_screen) flags |= SDL_FULLSCREEN;
-	else                flags |= SDL_RESIZABLE;
-
-	if (vp && vp->width)
-		set_default_window_size(vp->width, vp->height, vp->sar);
-
-	if (is_full_screen && fs_screen_width) {
-		w = fs_screen_width;
-		h = fs_screen_height;
-	}
-	else if (!is_full_screen && screen_width) {
-		w = screen_width;
-		h = screen_height;
-	}
-	else {
-		w = default_width;
-		h = default_height;
-	}
-	w = FFMIN(16383, w);
-	if (screen && is->width == screen->w && screen->w == w
-		&& is->height == screen->h && screen->h == h && !force_set_video_mode)
-		return 0;
-	screen = SDL_SetVideoMode(100, 100, 0, flags);
-	if (!screen) {
-		av_log(NULL, AV_LOG_FATAL, "SDL: could not set video mode - exiting\n");
-		do_exit(is);
-	}
-	
-	//is->width = screen->w;
-	//is->height = screen->h;
-
+	screen = SDL_SetVideoMode(100, 50, 0, SDL_HWSURFACE | SDL_ASYNCBLIT | SDL_HWACCEL);
 	return 0;
 }
 
@@ -1569,24 +1536,6 @@ static void alloc_picture(VideoState *is)
 	SDL_UnlockMutex(is->pictq.mutex);
 }
 
-static void duplicate_right_border_pixels(SDL_Overlay *bmp) {
-	int i, width, height;
-	Uint8 *p, *maxp;
-	for (i = 0; i < 3; i++) {
-		width = bmp->w;
-		height = bmp->h;
-		if (i > 0) {
-			width >>= 1;
-			height >>= 1;
-		}
-		if (bmp->pitches[i] > width) {
-			maxp = bmp->pixels[i] + bmp->pitches[i] * height - 1;
-			for (p = bmp->pixels[i] + width - 1; p < maxp; p += bmp->pitches[i])
-				*(p + 1) = *p;
-		}
-	}
-}
-
 static int queue_picture(VideoState *is, AVFrame *src_frame, double pts, double duration, int64_t pos, int serial)
 {
 	Frame *vp;
@@ -1635,26 +1584,8 @@ static int queue_picture(VideoState *is, AVFrame *src_frame, double pts, double 
 			return -1;
 	}
 
-	/* if the frame is not skipped, then display it */
 	if (vp->bmp) {
-		AVPicture pict = { { 0 } };
 
-		/* get a pointer on the bitmap */
-		SDL_LockYUVOverlay(vp->bmp);
-
-		pict.data[0] = vp->bmp->pixels[0];
-		pict.data[1] = vp->bmp->pixels[2];
-		pict.data[2] = vp->bmp->pixels[1];
-
-		pict.linesize[0] = vp->bmp->pitches[0];
-		pict.linesize[1] = vp->bmp->pitches[2];
-		pict.linesize[2] = vp->bmp->pitches[1];
-
-#if CONFIG_AVFILTER
-		// FIXME use direct rendering
-		av_picture_copy(&pict, (AVPicture *)src_frame,
-			src_frame->format, vp->width, vp->height);
-#else
 		av_opt_get_int(sws_opts, "sws_flags", 0, &sws_flags);
 		is->img_convert_ctx = sws_getCachedContext(is->img_convert_ctx,
 			vp->width, vp->height, (AVPixelFormat)src_frame->format, vp->width, vp->height,
@@ -1663,16 +1594,8 @@ static int queue_picture(VideoState *is, AVFrame *src_frame, double pts, double 
 			av_log(NULL, AV_LOG_FATAL, "Cannot initialize the conversion context\n");
 			exit(1);
 		}
-		sws_scale(is->img_convert_ctx, src_frame->data, src_frame->linesize,
-			0, vp->height, pict.data, pict.linesize);
 		avpicture_alloc(&vp->yuv, AV_PIX_FMT_YUV420P, vp->width, vp->height);
-		sws_scale(is->img_convert_ctx, src_frame->data, src_frame->linesize,
-			0, vp->height, vp->yuv.data, vp->yuv.linesize);
-#endif
-		/* workaround SDL PITCH_WORKAROUND */
-		duplicate_right_border_pixels(vp->bmp);
-		/* update the bitmap content */
-		SDL_UnlockYUVOverlay(vp->bmp);
+		sws_scale(is->img_convert_ctx, src_frame->data, src_frame->linesize,0, vp->height, vp->yuv.data, vp->yuv.linesize);
 
 		vp->pts = pts;
 		vp->duration = duration;
@@ -1717,220 +1640,6 @@ static int get_video_frame(VideoState *is, AVFrame *frame)
 
 	return got_picture;
 }
-
-#if CONFIG_AVFILTER
-static int configure_filtergraph(AVFilterGraph *graph, const char *filtergraph,
-	AVFilterContext *source_ctx, AVFilterContext *sink_ctx)
-{
-	int ret, i;
-	int nb_filters = graph->nb_filters;
-	AVFilterInOut *outputs = NULL, *inputs = NULL;
-
-	if (filtergraph) {
-		outputs = avfilter_inout_alloc();
-		inputs = avfilter_inout_alloc();
-		if (!outputs || !inputs) {
-			ret = AVERROR(ENOMEM);
-			goto fail;
-		}
-
-		outputs->name = av_strdup("in");
-		outputs->filter_ctx = source_ctx;
-		outputs->pad_idx = 0;
-		outputs->next = NULL;
-
-		inputs->name = av_strdup("out");
-		inputs->filter_ctx = sink_ctx;
-		inputs->pad_idx = 0;
-		inputs->next = NULL;
-
-		if ((ret = avfilter_graph_parse_ptr(graph, filtergraph, &inputs, &outputs, NULL)) < 0)
-			goto fail;
-	}
-	else {
-		if ((ret = avfilter_link(source_ctx, 0, sink_ctx, 0)) < 0)
-			goto fail;
-	}
-
-	/* Reorder the filters to ensure that inputs of the custom filters are merged first */
-	for (i = 0; i < graph->nb_filters - nb_filters; i++)
-		FFSWAP(AVFilterContext*, graph->filters[i], graph->filters[i + nb_filters]);
-
-	ret = avfilter_graph_config(graph, NULL);
-fail:
-	avfilter_inout_free(&outputs);
-	avfilter_inout_free(&inputs);
-	return ret;
-}
-
-static int configure_video_filters(AVFilterGraph *graph, VideoState *is, const char *vfilters, AVFrame *frame)
-{
-	static const enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE };
-	char sws_flags_str[128];
-	char buffersrc_args[256];
-	int ret;
-	AVFilterContext *filt_src = NULL, *filt_out = NULL, *last_filter = NULL;
-	AVCodecContext *codec = is->video_st->codec;
-	AVRational fr = av_guess_frame_rate(is->ic, is->video_st, NULL);
-
-	av_opt_get_int(sws_opts, "sws_flags", 0, &sws_flags);
-	snprintf(sws_flags_str, sizeof(sws_flags_str), "flags=%"PRId64, sws_flags);
-	graph->scale_sws_opts = av_strdup(sws_flags_str);
-
-	snprintf(buffersrc_args, sizeof(buffersrc_args),
-		"video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=%d/%d",
-		frame->width, frame->height, frame->format,
-		is->video_st->time_base.num, is->video_st->time_base.den,
-		codec->sample_aspect_ratio.num, FFMAX(codec->sample_aspect_ratio.den, 1));
-	if (fr.num && fr.den)
-		av_strlcatf(buffersrc_args, sizeof(buffersrc_args), ":frame_rate=%d/%d", fr.num, fr.den);
-
-	if ((ret = avfilter_graph_create_filter(&filt_src,
-		avfilter_get_by_name("buffer"),
-		"ffplay_buffer", buffersrc_args, NULL,
-		graph)) < 0)
-		goto fail;
-
-	ret = avfilter_graph_create_filter(&filt_out,
-		avfilter_get_by_name("buffersink"),
-		"ffplay_buffersink", NULL, NULL, graph);
-	if (ret < 0)
-		goto fail;
-
-	if ((ret = av_opt_set_int_list(filt_out, "pix_fmts", pix_fmts, AV_PIX_FMT_NONE, AV_OPT_SEARCH_CHILDREN)) < 0)
-		goto fail;
-
-	last_filter = filt_out;
-
-	/* Note: this macro adds a filter before the lastly added filter, so the
-	* processing order of the filters is in reverse */
-#define INSERT_FILT(name, arg) do {                                         \
-	AVFilterContext *filt_ctx;                                              \
-	\
-	ret = avfilter_graph_create_filter(&filt_ctx, \
-	avfilter_get_by_name(name), \
-	"ffplay_" name, arg, NULL, graph);   \
-	if (ret < 0)                                                            \
-	goto fail;                                                          \
-	\
-	ret = avfilter_link(filt_ctx, 0, last_filter, 0);                       \
-	if (ret < 0)                                                            \
-	goto fail;                                                          \
-	\
-	last_filter = filt_ctx;                                                 \
-	} while (0)
-
-	/* SDL YUV code is not handling odd width/height for some driver
-	* combinations, therefore we crop the picture to an even width/height. */
-	INSERT_FILT("crop", "floor(in_w/2)*2:floor(in_h/2)*2");
-
-	if (autorotate) {
-		AVDictionaryEntry *rotate_tag = av_dict_get(is->video_st->metadata, "rotate", NULL, 0);
-		if (rotate_tag && *rotate_tag->value && strcmp(rotate_tag->value, "0")) {
-			if (!strcmp(rotate_tag->value, "90")) {
-				INSERT_FILT("transpose", "clock");
-			}
-			else if (!strcmp(rotate_tag->value, "180")) {
-				INSERT_FILT("hflip", NULL);
-				INSERT_FILT("vflip", NULL);
-			}
-			else if (!strcmp(rotate_tag->value, "270")) {
-				INSERT_FILT("transpose", "cclock");
-			}
-			else {
-				char rotate_buf[64];
-				snprintf(rotate_buf, sizeof(rotate_buf), "%s*PI/180", rotate_tag->value);
-				INSERT_FILT("rotate", rotate_buf);
-			}
-		}
-	}
-
-	if ((ret = configure_filtergraph(graph, vfilters, filt_src, last_filter)) < 0)
-		goto fail;
-
-	is->in_video_filter = filt_src;
-	is->out_video_filter = filt_out;
-
-fail:
-	return ret;
-}
-
-static int configure_audio_filters(VideoState *is, const char *afilters, int force_output_format)
-{
-	static const enum AVSampleFormat sample_fmts[] = { AV_SAMPLE_FMT_S16, AV_SAMPLE_FMT_NONE };
-	int sample_rates[2] = { 0, -1 };
-	int64_t channel_layouts[2] = { 0, -1 };
-	int channels[2] = { 0, -1 };
-	AVFilterContext *filt_asrc = NULL, *filt_asink = NULL;
-	char aresample_swr_opts[512] = "";
-	AVDictionaryEntry *e = NULL;
-	char asrc_args[256];
-	int ret;
-
-	avfilter_graph_free(&is->agraph);
-	if (!(is->agraph = avfilter_graph_alloc()))
-		return AVERROR(ENOMEM);
-
-	while ((e = av_dict_get(swr_opts, "", e, AV_DICT_IGNORE_SUFFIX)))
-		av_strlcatf(aresample_swr_opts, sizeof(aresample_swr_opts), "%s=%s:", e->key, e->value);
-	if (strlen(aresample_swr_opts))
-		aresample_swr_opts[strlen(aresample_swr_opts) - 1] = '\0';
-	av_opt_set(is->agraph, "aresample_swr_opts", aresample_swr_opts, 0);
-
-	ret = snprintf(asrc_args, sizeof(asrc_args),
-		"sample_rate=%d:sample_fmt=%s:channels=%d:time_base=%d/%d",
-		is->audio_filter_src.freq, av_get_sample_fmt_name(is->audio_filter_src.fmt),
-		is->audio_filter_src.channels,
-		1, is->audio_filter_src.freq);
-	if (is->audio_filter_src.channel_layout)
-		snprintf(asrc_args + ret, sizeof(asrc_args)-ret,
-		":channel_layout=0x%"PRIx64, is->audio_filter_src.channel_layout);
-
-	ret = avfilter_graph_create_filter(&filt_asrc,
-		avfilter_get_by_name("abuffer"), "ffplay_abuffer",
-		asrc_args, NULL, is->agraph);
-	if (ret < 0)
-		goto end;
-
-
-	ret = avfilter_graph_create_filter(&filt_asink,
-		avfilter_get_by_name("abuffersink"), "ffplay_abuffersink",
-		NULL, NULL, is->agraph);
-	if (ret < 0)
-		goto end;
-
-	if ((ret = av_opt_set_int_list(filt_asink, "sample_fmts", sample_fmts, AV_SAMPLE_FMT_NONE, AV_OPT_SEARCH_CHILDREN)) < 0)
-		goto end;
-	if ((ret = av_opt_set_int(filt_asink, "all_channel_counts", 1, AV_OPT_SEARCH_CHILDREN)) < 0)
-		goto end;
-
-	if (force_output_format) {
-		channel_layouts[0] = is->audio_tgt.channel_layout;
-		channels[0] = is->audio_tgt.channels;
-		sample_rates[0] = is->audio_tgt.freq;
-		if ((ret = av_opt_set_int(filt_asink, "all_channel_counts", 0, AV_OPT_SEARCH_CHILDREN)) < 0)
-			goto end;
-		if ((ret = av_opt_set_int_list(filt_asink, "channel_layouts", channel_layouts, -1, AV_OPT_SEARCH_CHILDREN)) < 0)
-			goto end;
-		if ((ret = av_opt_set_int_list(filt_asink, "channel_counts", channels, -1, AV_OPT_SEARCH_CHILDREN)) < 0)
-			goto end;
-		if ((ret = av_opt_set_int_list(filt_asink, "sample_rates", sample_rates, -1, AV_OPT_SEARCH_CHILDREN)) < 0)
-			goto end;
-	}
-
-
-	if ((ret = configure_filtergraph(is->agraph, afilters, filt_asrc, filt_asink)) < 0)
-		goto end;
-
-	is->in_audio_filter = filt_asrc;
-	is->out_audio_filter = filt_asink;
-
-end:
-	if (ret < 0)
-		avfilter_graph_free(&is->agraph);
-	return ret;
-}
-#endif  /* CONFIG_AVFILTER */
 
 static int audio_thread(void *arg)
 {
@@ -3195,41 +2904,14 @@ static void event_loop(VideoState *cur_stream)
 VideoState *is;
 int play(char *fn)
 {
-	int flags;
-	
-	char dummy_videodriver[] = "SDL_VIDEODRIVER=dummy";
-
+	memset(input_filename, 0, 1024);
+	strcpy(input_filename, fn);
 	av_register_all();
-	avformat_network_init();
-
 
 	signal(SIGINT, sigterm_handler); /* Interrupt (ANSI).    */
 	signal(SIGTERM, sigterm_handler); /* Termination (ANSI).  */
 
-	input_filename = "d:/1.rmvb";
-
-	if (display_disable) {
-		video_disable = 1;
-	}
-	flags = SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER;
-	if (audio_disable)
-		flags &= ~SDL_INIT_AUDIO;
-	if (display_disable)
-		SDL_putenv(dummy_videodriver); /* For the event queue, we always need a video driver. */
-#if !defined(_WIN32) && !defined(__APPLE__)
-	flags |= SDL_INIT_EVENTTHREAD; /* Not supported on Windows or Mac OS X */
-#endif
-	if (SDL_Init(flags)) {
-		av_log(NULL, AV_LOG_FATAL, "Could not initialize SDL - %s\n", SDL_GetError());
-		av_log(NULL, AV_LOG_FATAL, "(Did you set the DISPLAY variable?)\n");
-		exit(1);
-	}
-
-	if (!display_disable) {
-		const SDL_VideoInfo *vi = SDL_GetVideoInfo();
-		fs_screen_width = vi->current_w;
-		fs_screen_height = vi->current_h;
-	}
+	SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER);
 
 	SDL_EventState(SDL_ACTIVEEVENT, SDL_IGNORE);
 	SDL_EventState(SDL_SYSWMEVENT, SDL_IGNORE);
@@ -3245,8 +2927,8 @@ int play(char *fn)
 	}
 
 	event_loop(is);
-
-	/* never returns */
-
 	return 0;
 }
+
+
+

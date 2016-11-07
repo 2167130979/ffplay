@@ -5,7 +5,9 @@ LRESULT CALLBACK WindowProcedure(HWND, UINT, WPARAM, LPARAM);
 
 /*  Make the class name into a global variable  */
 char szClassName[] = "CodeBlocksWindowsApp";
-
+char szFile[2048];
+BOOL  OpenFileDialog(HWND hWnd);
+;
 int WINAPI WinMain(HINSTANCE hThisInstance,
 	HINSTANCE hPrevInstance,
 	LPSTR lpszArgument,
@@ -44,8 +46,8 @@ int WINAPI WinMain(HINSTANCE hThisInstance,
 		WS_OVERLAPPEDWINDOW, /* default window */
 		CW_USEDEFAULT,       /* Windows decides the position */
 		CW_USEDEFAULT,       /* where the window ends up on the screen */
-		600,                 /* The programs width */
-		400,                 /* and height in pixels */
+		800,                 /* The programs width */
+		452,                 /* and height in pixels */
 		HWND_DESKTOP,        /* The window is a child-window to desktop */
 		NULL,                /* No menu */
 		hThisInstance,       /* Program Instance handler */
@@ -81,13 +83,16 @@ LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
 	LONGLONG time;
 	switch (message)                  /* handle the messages */
 	{
-	case WM_LBUTTONUP:	
+	case WM_LBUTTONDOWN:	
 		SetTimer(hwnd, 1, 1000, NULL);
 		if (!is){
-			Init(hwnd);
-			play("d:/1.rmvb");
-			
-		}			
+			if (OpenFileDialog(hwnd) != 0){
+				Init(hwnd);
+				play(szFile);
+			}			
+		}
+		else
+			stream_toggle_pause(is);
 		break;
 	case WM_SIZE:
 		if (wParam != SIZE_MINIMIZED){
@@ -117,6 +122,14 @@ LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
 			incr = -60.0;
 			goto do_seek;
 			break;
+		case VK_DOWN:
+			incr = 600.0;
+			goto do_seek;
+			break;
+		case VK_UP:
+			incr = -600.0;
+			goto do_seek;
+			break;
 		do_seek:
 			pos = get_master_clock(is);
 			if (isnan(pos))
@@ -129,10 +142,14 @@ LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
 	
 		break;
 	case WM_TIMER:
-		memset(title,0 , 64);
-		time = get_master_clock(is);
-		sprintf(title, "%02lld:%02lld:%02lld/%02lld:%02lld:%02lld", time / 3600, time / 60 % 60, time % 60, totaltime / 3600, totaltime / 60 % 60, totaltime % 60);
-		SetWindowText(hwnd, title);
+		if (is)
+		{
+			memset(title, 0, 64);
+			time = get_master_clock(is);
+			sprintf(title, "%02lld:%02lld:%02lld/%02lld:%02lld:%02lld", time / 3600, time / 60 % 60, time % 60, totaltime / 3600, totaltime / 60 % 60, totaltime % 60);
+			SetWindowText(hwnd, title);
+		}
+		
 		break;
 	case WM_DESTROY:
 		exit(0);       /* send a WM_QUIT to the message queue */
@@ -142,4 +159,18 @@ LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
 	}
 
 	return 0;
+}
+
+BOOL  OpenFileDialog(HWND hWnd)
+{
+	OPENFILENAME ofn;
+	ZeroMemory(&ofn, sizeof(ofn));
+	ofn.lStructSize = sizeof(ofn);
+	// must !
+	ofn.lpstrFile = szFile;
+	ofn.nMaxFile = sizeof(szFile);
+	//
+	ofn.lpstrFile[0] = '\0';
+	//no extention file!	ofn.lpstrFilter="Any file(*.*)\0*.*\0ddfs\0ddfs*\0";
+	return(GetOpenFileName((LPOPENFILENAME)&ofn));
 }
